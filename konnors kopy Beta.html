@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personal Game Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+<style>
+body { margin:0; font-family:'Orbitron', sans-serif; background:black; color:#C7FF08; display:flex; overflow:hidden; height:100vh; position:relative; }
+#starfield { position: fixed; top:0; left:0; width:100%; height:100%; z-index:-1; }
+:root { --neon-green:#39FF14; --neon-red:#ff003c; --neon-glow:0 0 10px #39FF14, 0 0 20px #39FF14, 0 0 30px #39FF14; }
+.sidebar { width:220px; background:rgba(20,20,20,0.9); display:flex; flex-direction:column; padding-top:20px; align-items:center; }
+.sidebar h2 { text-align:center; color: var(--neon-green); margin-bottom:20px; font-size:1.2rem; text-shadow: var(--neon-glow); }
+.sidebar button { background:none; border:none; color:#C7FF08; padding:12px; margin:2px 0; width:100%; text-align:left; cursor:pointer; font-family:'Orbitron'; transition:0.3s; }
+.sidebar button:hover { color:var(--neon-green); text-shadow: var(--neon-glow); }
+.sidebar img { margin-top:40px; width:310px; height:auto; object-fit:cover; object-position:top; border-radius:12px; box-shadow:none !important; }
+.content { flex:1; overflow-y:auto; padding:20px; }
+.category { display:none; margin-bottom:30px; }
+.category h3 { margin-bottom:10px; color: var(--neon-green); border-bottom:2px solid var(--neon-green); display:inline-block; padding-bottom:5px; text-shadow: var(--neon-glow); }
+.dashboard { display:flex; flex-wrap:wrap; gap:10px; }
+.sandbox-btn { padding:15px 25px; background-color: rgba(0,255,0,0.15); color:var(--neon-green); border:1px solid var(--neon-green); border-radius:12px; cursor:pointer; transition:0.3s; box-shadow:0 0 10px rgba(0,255,0,0.3); }
+.sandbox-btn:hover { background-color: var(--neon-green); color:#000; transform:translateX(5px); box-shadow: var(--neon-glow); }
+.footer-note { color:#aaa; text-align:center; margin-top:20px; font-size:0.9rem; font-family:'Orbitron'; }
+
+/* Achievement popup */
+#achievement-popup { position: fixed; right:0; top:50%; transform: translateY(-50%); width:250px; background: rgba(0,0,0,0.85); border:2px solid var(--neon-green); color:#fff; padding:10px; display:none; z-index:1000; }
+#achievement-popup.show { display:block; animation: slidein 0.5s forwards; }
+@keyframes slidein { from { right:-260px; } to { right:0; } }
+
+/* Hint menu */
+#achievement-hints { position: fixed; bottom:20px; right:20px; width:220px; background: rgba(0,0,0,0.85); color:#fff; border:2px solid var(--neon-green); padding:10px; border-radius:12px; cursor:pointer; z-index:1000; overflow:hidden; }
+#achievement-hints .hints-content { max-height:0; overflow:hidden; transition:max-height 0.3s; margin-top:5px; }
+#achievement-hints.open .hints-content { max-height:500px; }
+.hint-item { padding:5px 0; border-bottom:1px solid rgba(55,255,20,0.3); }
+.hint-item:last-child { border-bottom:none; }
+
+/* PACMAN text */
+#pacman-text { position: fixed; top:50%; left:50%; transform: translate(-50%,-50%); font-family: monospace; font-size:60px; color:yellow; display:none; z-index:1000; text-shadow:0 0 3px #fff; }
+</style>
+</head>
+<body>
+
+<canvas id="starfield"></canvas>
+
+<div class="sidebar">
+  <h2>Categories</h2>
+  <button onclick="showCategory('all')">All</button>
+  <button onclick="showCategory('modern')">Modern</button>
+  <button onclick="showCategory('retro')">Retro</button>
+  <button onclick="showCategory('konnor')">Konnor's Picks</button>
+  <img src="https://i.postimg.cc/Z5nBpwgC/distraction-henry-unscreen.gif" alt="REDACTED">
+</div>
+
+<div class="content">
+  <div class="category" id="all"><h3>All Sites</h3><div class="dashboard" id="all-dashboard"></div></div>
+  <div class="category" id="modern"><h3>Modern / HTML5 / Indie</h3><div class="dashboard" id="modern-dashboard"></div></div>
+  <div class="category" id="retro"><h3>Retro / Classic</h3><div class="dashboard" id="retro-dashboard"></div></div>
+  <div class="category" id="konnor"><h3>Konnor's Picks</h3><div class="dashboard" id="konnor-dashboard"></div></div>
+  <div class="footer-note">Click a button to open a sandboxed tab. If the site fails, open directly.</div>
+</div>
+
+<div id="achievement-popup"></div>
+<div id="achievement-hints">Achievement Hints
+  <div class="hints-content" id="hints-content"></div>
+</div>
+<div id="pacman-text">PACMAN</div>
+
+<!-- DEV CONSOLE -->
+<div id="dev-console" style="position: fixed; bottom:0; left:0; width:100%; height:200px; background: rgba(0,0,0,0.95); color: #39FF14; font-family: monospace; display:none; flex-direction: column; z-index:1001;">
+  <div class="output" id="console-output" style="flex:1; overflow-y:auto; padding:5px;"></div>
+  <input type="text" id="console-input" placeholder="Enter command..." style="background:black; color:#39FF14; border:1px solid #39FF14; padding:5px; flex:0;">
+</div>
+
+<script>
+// ------------------ STARFIELD ------------------
+const canvas=document.getElementById("starfield"), ctx=canvas.getContext("2d");
+let stars=[], numStars=150;
+function resizeCanvas(){canvas.width=window.innerWidth; canvas.height=window.innerHeight;}
+window.addEventListener("resize",resizeCanvas); resizeCanvas();
+for(let i=0;i<numStars;i++){stars.push({x:Math.random()*canvas.width,y:Math.random()*canvas.height,r:Math.random()*1.5,s:Math.random()*0.5+0.2,twinkleSpeed:Math.random()*0.05+0.02,alpha:Math.random()});}
+function animateStars(){
+  ctx.fillStyle="black"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  stars.forEach(s=>{
+    s.y+=s.s; s.alpha+=s.twinkleSpeed*(Math.random()>0.5?1:-1);
+    if(s.alpha<0.2)s.alpha=0.2; if(s.alpha>1)s.alpha=1;
+    if(s.y>canvas.height){s.y=0;s.x=Math.random()*canvas.width;}
+    ctx.beginPath(); ctx.globalAlpha=s.alpha; ctx.fillStyle="white"; ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1;
+  });
+  requestAnimationFrame(animateStars);
+}
+animateStars();
+
+// ------------------ SITES ------------------
+const sites = [
+  {title:"Jelly Mario",url:"https://jellymar.io",category:"modern"},
+  {title:"JerBer's Games",url:"https://ubg365.github.io",category:"modern"},
+  {title:"Khan Academy",url:"https://www.khanacademy.ink/main.html?id=215",category:"modern"},
+  {title:"Browser.lol",url:"https://browser.lol",category:"modern"},
+  {title:"Jordan's Mathwork",url:"https://galacticnetwork.github.io/jordansmathwork-v2.5/gs",category:"modern"},
+  {title:"WebGames.io",url:"https://webgames.io",category:"modern"},
+  {title:"Gidd.io",url:"https://gidd.io",category:"modern"},
+  {title:"IOGames.space",url:"https://iogames.space",category:"modern"},
+  {title:"TimePass Games",url:"https://timepass.games",category:"modern"},
+  {title:"FunnyGames.org",url:"https://www.funnygames.org",category:"modern"},
+  {title:"1000WebGames",url:"https://1000webgames.com",category:"modern"},
+  {title:"BGames",url:"https://www.bgames.com",category:"modern"},
+  {title:"GamePix",url:"https://www.gamepix.com",category:"modern"},
+  {title:"GameTop",url:"https://www.gametop.com/online/index.html",category:"modern"},
+  {title:"PlayClassicGames",url:"https://playclassic.games",category:"retro"},
+  {title:"Gamaverse",url:"https://gamaverse.com",category:"modern"},
+  {title:"Lofi & Games",url:"https://www.lofigames.net",category:"modern"},
+  {title:"MiniGames",url:"https://www.minigames.com/",category:"modern"},
+  {title:"NumuKi",url:"https://www.numuki.com/games/html5/",category:"modern"},
+  {title:"GameSnacks",url:"https://gamesnacks.com/",category:"modern"},
+  {title:"BestGames",url:"https://www.bestgames.com/Html5-games",category:"modern"},
+  {title:"GameHubs",url:"https://www.gamehubs.net/public/",category:"modern"},
+  {title:"PlayToMax",url:"https://playtomax.com/",category:"modern"},
+  {title:"RetroGames.cz",url:"https://retrogames.cz/",category:"retro"},
+  {title:"FunHTML5Games",url:"https://funhtml5games.com/",category:"retro"},
+  {title:"MiniGames HTML5",url:"https://www.minigames.com/category/html5",category:"retro"},
+  {title:"WebRcade",url:"https://www.webrcade.com/",category:"retro"},
+  {title:"PlayOldGames",url:"https://weplayretro.games",category:"retro"},
+  {title:"PokemonGames",url:"https://gbapokemon.com/games",category:"retro"},
+  {title:"strongdogs",url:"https://65s.org",category:"modern"},
+  {title:"DeltaRune",url:"https://deltarunegame.github.io",category:"modern"},
+  {title:"MiniClip",url:"https://www.play-games.com/miniclip-games.html",category:"modern"},
+  {title:"Venge",url:"https://venge.io",category:"modern"},
+  {title:"DuckExams",url:"https://duckmath.org",category:"modern"},
+  {title:"TotallyScience",url:"https://d11jzht7mj96rr.cloudfront.net",category:"modern"},
+  {title:"Playagama",url:"https://playgama.com",category:"modern"},
+  {title:"OtherGames",url:"https://ubgw.gitlab.io",category:"modern"},
+  {title:"Mathpapers",url:"https://mathpapers.org/activities",category:"modern"},
+  {title:"HenryStickman",url:"https://www.silvergames.com/en/t/henry-stickman",category:"modern"},
+  {title:"Gunblood",url:"https://www.gunblood.com",category:"modern"}
+];
+
+
+// ------------------ CREATE BUTTONS ------------------
+function createButtons(){
+  sites.forEach(site=>{
+    const btn=document.createElement('button');
+    btn.className="sandbox-btn"; btn.textContent=site.title;
+    btn.onclick=()=>openSandbox(site.url,site.title);
+    document.getElementById(site.category+"-dashboard").appendChild(btn);
+    const allBtn=document.createElement('button');
+    allBtn.className="sandbox-btn"; allBtn.textContent=site.title;
+    allBtn.onclick=()=>openSandbox(site.url,site.title);
+    document.getElementById("all-dashboard").appendChild(allBtn);
+  });
+}
+createButtons();
+
+function showCategory(id){
+  ['all','modern','retro','konnor'].forEach(cat=>{
+    document.getElementById(cat).style.display=(cat===id)?'block':'none';
+  });
+}
+showCategory('all');
+
+function openSandbox(url,title){
+  const w=window.open('about:blank','_blank');
+  if(!w){alert('Popup blocked!'); return;}
+  w.document.write(`<html><head><title>${title}</title></head><body style="margin:0;background:black;"><iframe src="${url}" style="border:none;width:100vw;height:100vh;"></iframe></body></html>`);
+}
+
+// ------------------ ACHIEVEMENTS COMPLETE FIXED BLOCK ------------------
+(function(){
+    let unlockedCount = 0;
+
+    // Achievement definitions
+    let achievements=[
+        {id:'konnor',name:"Konnor Fan",desc:"Clicked Konnor section",unlocked:false,hint:"Click the Konnor section"},
+        {id:'pacman',name:"PACMAN Fan",desc:"AFK 5 min then click PACMAN",unlocked:false,hint:"A yellow legend appears"},
+        {id:'quickclicker',name:"Quick Clicker",desc:"Click 10 games in under 1 min",unlocked:false,hint:"Rapid moves"},
+        {id:'retro',name:"Retro Collector",desc:"Open all retro games",unlocked:false,hint:"Old is gold"},
+        {id:'modern',name:"Modern Explorer",desc:"Open all modern games",unlocked:false,hint:"Explore modern realms"},
+        {id:'allstar',name:"All-Star Player",desc:"Open 10 different games",unlocked:false,hint:"Variety is key"},
+        {id:'firsttimer',name:"First Timer",desc:"Open first game",unlocked:false,hint:"Begin the journey"},
+        {id:'hover',name:"Hover Master",desc:"Hover all sidebar buttons",unlocked:false,hint:"Feel the neon"},
+        {id:'afkstar',name:"AFK Star",desc:"Click star after 1 min idle",unlocked:false,hint:"Wait for a twinkle"},
+        {id:'doubleclick',name:"Double Clicker",desc:"Double click a game",unlocked:false,hint:"Twice the power"},
+        {id:'nightowl',name:"Night Owl",desc:"Stay 10 min on site",unlocked:false,hint:"Late nights"},
+        {id:'secretstar',name:"Secret Star",desc:"Click special star",unlocked:false,hint:"Look closely"},
+        {id:'hiddenhint',name:"Hidden Hint",desc:"Open hints menu 3 times",unlocked:false,hint:"Peek often"},
+        {id:'platinum',name:"All Roads Lead To Rome",desc:"Unlock all achievements",unlocked:false,hint:"All roads lead to Rome"},
+        {id:'dweedoclock', name:"DweedoClock", desc:"Click every game once", unlocked:false, hint:"Maybe explore… everything?"},
+        {id:'sittingthere', name:"Sitting There", desc:"Hover a button for 2 min", unlocked:false, hint:"Hold yourself back from clicking..."},
+        {id:'WowNerd', name:"WoWNerd", desc:"Play 8 games from the same category", unlocked:false, hint:"8 times...8 times"},
+        {id:'HenryStickman', name:"HenryStickman", desc:"Click the image under the categories", unlocked:false, hint:"Henry Stickman"},
+        {id:'67', name:"67", desc:"Have the tab open for 67 minutes", unlocked:false, hint:"67..minutes?"}
+    ];
+
+    // Show achievement helper
+    function showAchievement(id){
+        const ach = achievements.find(a=>a.id===id);
+        if(!ach.unlocked){
+            ach.unlocked=true; unlockedCount++;
+            const popup=document.getElementById("achievement-popup");
+            popup.textContent=`Achievement Unlocked: ${ach.name}`;
+            popup.classList.add("show");
+            setTimeout(()=>popup.classList.remove("show"),3000);
+            updateHints();
+            if(unlockedCount === achievements.length-1) unlockPlatinum();
+        }
+    }
+
+    // Update hints
+    function updateHints(){
+        const container = document.getElementById("hints-content");
+        container.innerHTML="";
+        achievements.forEach(a=>{
+            if(!a.unlocked){
+                const div = document.createElement("div");
+                div.className="hint-item"; div.textContent=a.hint;
+                container.appendChild(div);
+            }
+        });
+    }
+
+    // Unlock platinum
+    function unlockPlatinum(){
+        showAchievement('platinum');
+        document.querySelectorAll(".sandbox-btn").forEach(b=>{
+            b.style.border="1px solid var(--neon-red)";
+            b.style.boxShadow="0 0 10px var(--neon-red)";
+            b.style.backgroundColor="rgba(255,0,60,0.15)";
+            b.style.color="var(--neon-red)";
+        });
+        document.querySelectorAll(".sidebar h2, .category h3").forEach(e=>{
+            e.style.color="var(--neon-red)";
+            e.style.textShadow="0 0 10px var(--neon-red)";
+        });
+    }
+
+    // DEV unlock
+    window.devunlock=function(){
+        achievements.forEach(a=>a.unlocked=true);
+        unlockedCount = achievements.length;
+        updateHints();
+        unlockPlatinum();
+    }
+
+    // ------------------ BASIC ACHIEVEMENTS ------------------
+    let clickTracker={count:0,time:Date.now()};
+    document.querySelectorAll(".sandbox-btn").forEach(btn=>{
+        btn.addEventListener("click",()=>{
+            clickTracker.count++;
+            if(!achievements.find(a=>a.id==='firsttimer').unlocked) showAchievement('firsttimer');
+            if(clickTracker.count>=10) showAchievement('allstar');
+            if(Date.now()-clickTracker.time<60000 && clickTracker.count>=10) showAchievement('quickclicker');
+        });
+        btn.addEventListener("dblclick",()=> showAchievement('doubleclick')); // Twice the power
+    });
+
+    // Hover achievements
+    let hoveredBtns=0;
+    document.querySelectorAll(".sidebar button").forEach(btn=>{
+        btn.addEventListener("mouseenter",()=>{
+            hoveredBtns++;
+            if(hoveredBtns>=document.querySelectorAll(".sidebar button").length) showAchievement('hover');
+        });
+
+        // Sitting There 2 min
+        let hoverStart=null;
+        btn.addEventListener("mouseenter",()=> hoverStart=Date.now());
+        btn.addEventListener("mouseleave",()=>{
+            if(hoverStart && Date.now()-hoverStart>=120000) showAchievement('sittingthere');
+            hoverStart=null;
+        });
+    });
+
+    // DweedoClock & WoWNerd
+    let clickedGames = new Set(), categoryClicks={};
+    document.querySelectorAll(".sandbox-btn").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+            clickedGames.add(btn.textContent);
+            if(clickedGames.size === sites.length) showAchievement('dweedoclock');
+
+            const site = sites.find(s=>s.title===btn.textContent);
+            if(site){
+                categoryClicks[site.category] = (categoryClicks[site.category]||0)+1;
+                if(categoryClicks[site.category]===8) showAchievement('WowNerd');
+            }
+        });
+    });
+
+    // Konnor
+    document.querySelector(".sidebar button:nth-child(4)").addEventListener("click",()=> showAchievement('konnor'));
+
+    // PACMAN
+    setTimeout(()=>{ document.getElementById("pacman-text").style.display="block"; },300000);
+    document.getElementById("pacman-text").addEventListener("click",()=>{
+        showAchievement('pacman');
+        document.getElementById("pacman-text").style.display="none";
+    });
+
+    // Night Owl 10 min
+    setTimeout(()=> showAchievement('nightowl'),10*60*1000);
+
+    // 67 minutes
+    setTimeout(()=> showAchievement('67'),67*60*1000);
+
+    // ------------------ HINTS ------------------
+    let hintOpenCount=0;
+    const hintsMenu=document.getElementById("achievement-hints");
+    hintsMenu.addEventListener("click", ()=>{
+        hintsMenu.classList.toggle("open");
+        hintOpenCount++;
+        if(hintOpenCount===3) showAchievement('hiddenhint'); // Peek often
+    });
+
+    // ------------------ SECRET STAR ------------------
+    function spawnSecretStar(){
+        const star = document.createElement("div");
+        star.id="secret-star";
+        const x=Math.random()*(window.innerWidth-40)+20;
+        const y=Math.random()*(window.innerHeight-40)+20;
+        star.style.cssText=`
+            position:fixed;
+            left:${x}px;
+            top:${y}px;
+            width:20px;
+            height:20px;
+            background:yellow;
+            border-radius:50%;
+            cursor:pointer;
+            z-index:1000;
+            box-shadow:0 0 10px yellow,0 0 20px yellow;
+        `;
+        document.body.appendChild(star);
+        star.addEventListener("click", e=>{
+            sparkleEffect(e.clientX,e.clientY);
+            showAchievement('secretstar'); // Look closely
+            star.remove();
+            setTimeout(spawnSecretStar, Math.random()*5000+5000);
+        });
+    }
+    spawnSecretStar();
+
+    function sparkleEffect(x,y){
+        for(let i=0;i<5;i++){
+            const s=document.createElement("div");
+            s.style.cssText=`
+                position:fixed;
+                left:${x}px;
+                top:${y}px;
+                width:6px;
+                height:6px;
+                background:#39FF14;
+                border-radius:50%;
+                box-shadow:0 0 10px #39FF14,0 0 20px #39FF14;
+                animation:sparkle 0.6s ease-out forwards;
+                z-index:1000;
+            `;
+            document.body.appendChild(s);
+            setTimeout(()=>s.remove(),600);
+        }
+    }
+
+    if(!document.getElementById("sparkle-style")){
+        const style=document.createElement("style");
+        style.id="sparkle-style";
+        style.textContent=`@keyframes sparkle {
+            0% {transform:scale(0); opacity:1;}
+            50% {transform:scale(1.5); opacity:1;}
+            100% {transform:scale(0); opacity:0;}
+        }`;
+        document.head.appendChild(style);
+    }
+
+    // Henry Stickman
+    document.querySelector(".sidebar img").addEventListener("click",()=> showAchievement('HenryStickman'));
+
+    // AFK Star 1 min
+    setTimeout(()=> showAchievement('afkstar'),60000);
+
+    // Initial update of hints
+    updateHints();
+})();
+
+// ------------------ DEV CONSOLE TOGGLE ("/") ------------------
+let devConsoleOpen = false;
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === "/") {
+        devConsoleOpen = !devConsoleOpen;
+        document.getElementById("dev-console").style.display = devConsoleOpen ? "flex" : "none";
+        if (devConsoleOpen) document.getElementById("console-input").focus();
+        e.preventDefault();
+    }
+});
+
+// ------------------ DEV CONSOLE INPUT HANDLER ------------------
+document.getElementById("console-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        const cmd = e.target.value.trim();
+        const output = document.getElementById("console-output");
+
+        if (cmd === "devunlock()") {
+            output.innerHTML += "<div>> devunlock() — ALL achievements unlocked.</div>";
+            devunlock();
+        } else {
+            output.innerHTML += `<div>> Unknown command: ${cmd}</div>`;
+        }
+
+        e.target.value = "";
+        output.scrollTop = output.scrollHeight;
+    }
+});
+
+</script>
+</body>
+</html>
